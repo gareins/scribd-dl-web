@@ -46,7 +46,7 @@ def process_url(url, task_id):
         
         # Check if process succeeded
         if process.returncode != 0:
-            error_message = '\n'.join(stdout_lines[-5:])  # Get last 5 lines of output
+            error_message = '\n'.join(stdout_lines)  # Get last 5 lines of output
             processing_status[task_id]['status'] = 'error'
             processing_status[task_id]['error'] = f"Command failed with exit code {process.returncode}\n{error_message}"
             return
@@ -136,12 +136,10 @@ def render_page(**kwargs):
                 headers: new Headers({'content-type': 'application/json'}),
                 body: JSON.stringify({ url: document.getElementById('url').value })
             });
-            console.log(':)1');
             
             const data = await response.json();
             const taskId = data.taskId;
             
-            console.log(':)2');
             // Start polling for status
             pollStatus(taskId);
         };
