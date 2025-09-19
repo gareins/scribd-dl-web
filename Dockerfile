@@ -21,6 +21,10 @@ RUN wget https://github.com/rkwyu/scribd-dl/archive/refs/heads/main.zip && \
     rm main.zip && \
     mv scribd-dl-main scribd-dl
 
+# Patch code
+COPY patch.py ./
+RUN python3 patch.py scribd-dl
+
 # Install npm dependencies
 RUN cd scribd-dl && npm install
 
