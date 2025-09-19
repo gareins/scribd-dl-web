@@ -1,4 +1,4 @@
-FROM ghcr.io/puppeteer/puppeteer:latest
+FROM ubuntu:latest
 
 # Create and set working directory
 WORKDIR /app
@@ -9,15 +9,11 @@ USER root
 RUN apt update
 RUN apt install -y \
   python3-flask \
-  wget unzip
-
-  #nodejs npm \
-  #chromium-browser \
+  wget unzip \
+  nodejs npm 
 
 # cleanup apt
 RUN rm -rf /var/lib/apt/lists/*
-
-USER $PPTRUSER_UID
 
 # Download and extract GitHub repository
 RUN wget https://github.com/rkwyu/scribd-dl/archive/refs/heads/main.zip && \
