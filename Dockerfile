@@ -24,9 +24,16 @@ RUN wget https://github.com/rkwyu/scribd-dl/archive/refs/heads/main.zip && \
 # Patch code
 COPY patch.py ./
 RUN python3 patch.py scribd-dl
+run rm patch.py
 
 # Install npm dependencies
 RUN cd scribd-dl && npm install
+
+# cleanup
+RUN apt remove -y wget unzip
+RUN apt-get clean
+RUN cd scribd-dl && npm dedupe
+RUN apt autoremove -y
 
 # Copy Python application file
 COPY app.py .
