@@ -9,6 +9,7 @@ USER root
 RUN apt update
 RUN apt install -y \
   python3-flask \
+  gunicorn \
   wget unzip \
   nodejs npm 
 
@@ -44,4 +45,5 @@ COPY templates/index.html templates/index.html
 EXPOSE 5000
 
 # Run the Python application
-CMD ["python3", "app.py"]
+# CMD ["python3", "app.py"] # Debug version
+CMD ["gunicorn"  , "-b", "0.0.0.0:5000", "app:app"]

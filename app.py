@@ -11,6 +11,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 background_worker = BackgroundWorker()
+with app.app_context():
+    background_worker.start()
 
 @app.route('/')
 def index():
@@ -64,6 +66,5 @@ def download_file():
     }
 
 if __name__ == '__main__':
-    background_worker.start()
     app.run(debug=True, host='0.0.0.0')
 
