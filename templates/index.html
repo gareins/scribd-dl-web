@@ -1,0 +1,87 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ title }}</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 20px auto; padding: 20px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; }
+        input[type="text"] { width: 100%; padding: 8px; }
+        button { background-color: #007bff; color: white; padding: 10px 15px; border: none; cursor: pointer; }
+        .error { color: red; margin-top: 5px; }
+        .success { color: green; margin-top: 5px; }
+        #status { margin-top: 15px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>Scribd PDF Download</h1>
+    
+    {% if error %}
+        <div class="error">{{ error }}</div>
+    {% endif %}
+    {% if success %}
+        <div class="success">{{ success }}</div>
+    {% endif %}
+    
+    <form id="urlForm" method="post">
+        <div class="form-group">
+            <label for="url">Enter URL:</label>
+            <input type="text" id="url" name="url" required>
+        </div>
+        <button type="submit">Process URL</button>
+    </form>
+
+    <pre id="status"></pre>
+
+    <script>
+        document.getElementById('urlForm').onsubmit = async function(e) {
+            e.preventDefault();
+	    let url = document.getElementById('url').value;
+            
+            // Show processing status
+            document.getElementById('status').innerHTML = '<i>Request sent...</i>';
+            
+            // Send request to start processing
+            const response = await fetch('/start-processing', {
+                method: 'POST',
+                headers: new Headers({'content-type': 'application/json'}),
+                body: JSON.stringify({ url: url })
+            });
+            
+            // Start polling for status
+            pollStatus(url);
+        };
+        
+        async function pollStatus(url) {
+            let enc_url = encodeURIComponent(url);
+
+            try {
+                const response = await fetch(`/status?url=${enc_url}`);
+                const data = await response.json();
+                console.log(data);
+                
+                if (data.status === 'completed') {
+                    document.getElementById('status').innerHTML = 
+                        `<a href='/download?url=${enc_url}'>Download</a>`;
+                } else if (data.status === 'failed') {
+                    document.getElementById('status').innerHTML = 
+                        `<i>Failed: ${data.error}</i>`;
+                } else {
+                    if (data.status === 'pending')
+                        document.getElementById('status').innerHTML = `<i>In queue, ${data.queue} remaining</i>`;
+                    else 
+                        document.getElementById('status').innerHTML = `<i>Status: ${data.status}</i>`;
+
+                    // Continue polling
+                    setTimeout(() => pollStatus(url), 1000);
+                }
+            } catch (error) {
+                console.error('Error polling status:', error);
+                document.getElementById('status').innerHTML = 
+                    '<i>Error checking status</i>';
+            }
+        }
+    </script>
+</body>
+</html>
