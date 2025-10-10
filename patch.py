@@ -25,6 +25,9 @@ async function lookupIp() {
 };
 """
 
+pattern1_2 = "this.browser.close();"
+replacement1_2 = "this.browser.disconnect();"
+
 path2 = '/package.json'
 pattern2 = '0.33.3'
 replacement2 = '0.33.5'
@@ -35,6 +38,7 @@ with open(root + path1, 'r') as fp:
     content = fp.read()
     
 result = re.sub(pattern1, replacement1, content, flags=re.MULTILINE)
+result = result.replace(pattern1_2, replacement1_2)
 
 with open(root + path1, 'w') as fp:
     fp.write(head1 + result)
