@@ -18,10 +18,12 @@ RUN rm -rf /var/lib/apt/lists/*
 RUN apt autoremove -y && apt clean -y
 
 # Download and extract GitHub repository
-RUN wget https://github.com/rkwyu/scribd-dl/archive/refs/heads/main.zip && \
+# RUN wget https://github.com/rkwyu/scribd-dl/archive/refs/heads/main.zip && \
+RUN wget https://github.com/rkwyu/scribd-dl/archive/1f9ffc29441305f7478ab7be1f4600459c9d28d7.zip && \
+    mv *.zip main.zip && \
     unzip main.zip && \
     rm main.zip && \
-    mv scribd-dl-main scribd-dl
+    mv * scribd-dl
 
 # Patch code
 COPY patch.py ./
