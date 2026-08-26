@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, jsonify
 
 import tempfile
 import logging
+import urllib.parse
 
 from background import BackgroundWorker
 
@@ -59,10 +60,12 @@ def download_file():
     data = background_worker.get_result(url)
     if data is None:
         return 'Task not found or not completed', 404
+
+    safe_filename = urllib.parse.quote(data["filename"], safe='')
         
     return data['content'], 200, {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': f'attachment; filename="{data["filename"]}"'
+        'Content-Disposition': f'attachment; filename="{safe_filename}"'
     }
 
 if __name__ == '__main__':
