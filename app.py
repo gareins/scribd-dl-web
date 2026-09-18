@@ -2,13 +2,16 @@ from flask import Flask, render_template, request, jsonify
 
 import tempfile
 import logging
+import os
 import urllib.parse
 
 from background import BackgroundWorker
 
 app = Flask(__name__)
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.DEBUG if os.environ.get('DEBUG') else logging.INFO
+)
 logger = logging.getLogger(__name__)
 
 background_worker = BackgroundWorker()
