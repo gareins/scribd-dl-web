@@ -7,9 +7,12 @@ import * as scribdJob from "../const/ScribdJob.js"
 import { Image } from "../object/Image.js"
 import sharp from "sharp";
 import path from 'path'
+import fs from 'fs'
 
 const output = configLoader.load("DIRECTORY", "output")
 const rendertime = parseInt(configLoader.load("SCRIBD", "rendertime"))
+const retries = parseInt(configLoader.load("SCRIBD", "retries"))
+const skipOnError = configLoader.load("SCRIBD", "skip_on_error") === "true"
 
 class JobRunner {
     constructor() {
@@ -37,10 +40,75 @@ class JobRunner {
 
         const dir = await jobDirectory.create(output, docId)
 
-        const manifest = await this.collect(embedUrl, docId)
-        await this.assemble(docId, manifest, dir)
+        try {
+            const manifest = await this.collect(embedUrl, docId)
+            await this.assemble(docId, manifest, dir)
+        } finally {
+            await puppeteerSg.close()
+        }
+    }
 
-        await puppeteerSg.close()
+    /**
+     * Resolve a page's pixels-to-points dimensions from its inline style
+     * @param {object} element puppeteer element handle for an outer_page_*
+     * @returns {Promise<{width:number,height:number}>}
+     */
+    async pageDimensions(element) {
+        let width = 1191
+        let height = 1684
+        const style = await element.evaluate((el) => el.getAttribute("style"));
+        if (style.includes("width:") && style.includes("height:")) {
+            height = Math.ceil(width * parseInt(style.split("height:")[1].split("px")[0].trim()) / parseInt(style.split("width:")[1].split("px")[0].trim()))
+        }
+        return { width, height }
+    }
+
+    /**
+     * Render a single page to its job file. Bounded retries on failure.
+     * @param {object} page puppeteer page
+     * @param {object} el    puppeteer element handle for the outer_page_*
+     * @param {string} file  destination png path
+     * @param {number} index 1-based page index
+     * @returns {Promise<{width:number,height:number}>} rendered page dimensions
+     */
+    async renderPage(page, el, file, index) {
+        await page.evaluate((index) => { // eslint-disable-next-line
+            document.getElementById(`outer_page_${index}`).scrollIntoView()
+        }, index)
+
+        const { width, height } = await this.pageDimensions(el)
+        await page.setViewport({ width: width, height: height, deviceScaleFactor: 2 });
+
+        for (let attempt = 1; attempt <= retries; attempt++) {
+            try {
+                await el.screenshot({ path: file })
+                return { width, height }
+            } catch (err) {
+                if (fs.existsSync(file)) {
+                    fs.rmSync(file, { force: true })
+                }
+                if (attempt === retries) {
+                    throw err
+                }
+            }
+        }
+    }
+
+    /**
+     * Write a white placeholder image for a broken page so the page count holds
+     * @param {string} file  destination png path
+     * @param {number} width rendered width
+     * @param {number} height rendered height
+     */
+    async writePlaceholder(file, width, height) {
+        await sharp({
+            create: {
+                width: Math.max(1, width),
+                height: Math.max(1, height),
+                channels: 3,
+                background: { r: 255, g: 255, b: 255 }
+            }
+        }).png().toFile(file)
     }
 
     /**
@@ -75,23 +143,23 @@ class JobRunner {
                 continue
             }
 
-            await page.evaluate((index) => { // eslint-disable-next-line
-                document.getElementById(`outer_page_${index}`).scrollIntoView()
-            }, index)
-
-            let width = 1191
-            let height = 1684
-            let style = await doc_pages[i].evaluate((el) => el.getAttribute("style"));
-            if (style.includes("width:") && style.includes("height:")) {
-                height = Math.ceil(width * parseInt(style.split("height:")[1].split("px")[0].trim()) / parseInt(style.split("width:")[1].split("px")[0].trim()))
-            }
-            await page.setViewport({ width: width, height: height, deviceScaleFactor: 2 });
+            const file = jobDirectory.pageFile(output, docId, index)
+            console.log(`PROGRESS ${index}/${doc_pages.length}`)
 
             try {
-                await doc_pages[i].screenshot({ path: jobDirectory.pageFile(output, docId, index) })
+                await this.renderPage(page, doc_pages[i], file, index)
                 await jobDirectory.markDone(output, docId, index)
             } catch (err) {
-                await jobDirectory.markFailed(output, docId, index, err.message)
+                console.log(`FAILED ${index}/${doc_pages.length}: ${err.message}`)
+                if (skipOnError) {
+                    const { width, height } = await this.pageDimensions(doc_pages[i])
+                    await this.writePlaceholder(file, width, height)
+                    await jobDirectory.markSkipped(output, docId, index, err.message)
+                } else {
+                    await jobDirectory.markFailed(output, docId, index, err.message)
+                    await page.close()
+                    throw new Error(`Page ${index} failed after ${retries} attempts`)
+                }
             }
             await new Promise(resolve => setTimeout(resolve, rendertime))
         }
@@ -108,12 +176,12 @@ class JobRunner {
      */
     async assemble(docId, manifest, dir) {
         const images = []
-        for (const page of manifest.pages) {
-            if (page.status !== scribdJob.STATUS_DONE) {
+        for (const entry of manifest.pages) {
+            if (entry.status !== scribdJob.STATUS_DONE && entry.status !== scribdJob.STATUS_SKIPPED) {
                 continue
             }
-            const metadata = await sharp(page.file).metadata()
-            images.push(new Image(page.file, metadata.width, metadata.height))
+            const metadata = await sharp(entry.file).metadata()
+            images.push(new Image(entry.file, metadata.width, metadata.height))
         }
         await pdfGenerator.generate(images, path.join(dir, scribdJob.FINAL_FILE))
     }
