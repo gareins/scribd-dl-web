@@ -164,6 +164,11 @@ class JobRunner {
         let doc_pages = await page.$$("div.outer_page_container div[id^='outer_page_']")
         let manifest = await jobDirectory.init(output, docId, doc_pages.length)
 
+        const resumed = manifest.pages.filter(p => p.status === scribdJob.STATUS_DONE || p.status === scribdJob.STATUS_SKIPPED).length
+        if (resumed > 0) {
+            console.log(`RESUME ${resumed}/${doc_pages.length}`)
+        }
+
         for (let i = 0; i < doc_pages.length; i++) {
             const index = i + 1
             const status = manifest.pages[i].status
@@ -197,7 +202,11 @@ class JobRunner {
         }
 
         await page.close()
-        return jobDirectory.readManifest(output, docId)
+
+        const finalManifest = jobDirectory.readManifest(output, docId)
+        const done = finalManifest.pages.filter(p => p.status === scribdJob.STATUS_DONE).length
+        console.log(`COMPLETE ${done}/${finalManifest.total}`)
+        return finalManifest
     }
 
     /**

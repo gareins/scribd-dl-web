@@ -1,5 +1,7 @@
 import queue
 import os
+import re
+import json
 import subprocess
 import threading
 import traceback
@@ -14,6 +16,35 @@ class TaskStatus(Enum):
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
+
+def _doc_id(url):
+    """Best-effort extraction of a scribd document id from a url."""
+    m = re.search(r'\.scribd\.com/(?:embeds/|(?:document|doc)/)(\d+)', url)
+    return m.group(1) if m else None
+
+def _job_progress_from_disk(url):
+    """Reconstruct progress for a job that outlived its process.
+
+    Reads output/.jobs/<docId>/progress.json when present. Returns a dict with
+    progress counters and a partial flag, or None when no checkpoint exists.
+    """
+    doc_id = _doc_id(url)
+    if not doc_id:
+        return None
+    progress_path = os.path.join(WORK_DIR, 'output', '.jobs', doc_id, 'progress.json')
+    if not os.path.exists(progress_path):
+        return None
+    try:
+        with open(progress_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        done = int(data.get('done', 0))
+        total = int(data.get('total', 0))
+        return {
+            'progress': {'done': done, 'total': total},
+            'partial': total > 0 and done < total,
+        }
+    except (ValueError, OSError):
+        return None
 
 class BackgroundWorker:
     def __init__(self):
@@ -33,16 +64,24 @@ class BackgroundWorker:
         logger.info('background thread started')
 
     def submit_url(self, url):
-        if url in self.items:
-            # already processed
+        if url in self.items and self.items[url]['status'] == TaskStatus.PROCESSING:
+            # already running, don't double-enqueue
             return
+
+        if url in self.items:
+            # finished before; allow a fresh run. Re-submitting a URL that has a
+            # partial on-disk job auto-resumes it (npm start <url> continues it).
+            del self.items[url]
 
         self.items[url] = {
             'url': url,
             'status': TaskStatus.PENDING,
             'data': None,
             'error': None,
-            'stdout': []
+            'stdout': [],
+            'progress': None,
+            'resumable': False,
+            'page_error': None,
         }
 
         logger.debug('Enqued:' + url)
@@ -62,6 +101,25 @@ class BackgroundWorker:
                 self._report_error(f"Error processing queue: {e}")
 
             self.queue.task_done()
+
+    def _parse_heartbeat(self, item, line):
+        """Extract progress / resumable / page_error from JobRunner stdout lines."""
+        if line.startswith('PROGRESS '):
+            m = re.match(r'^PROGRESS (\d+)/(\d+)$', line)
+            if m:
+                item['progress'] = {'done': int(m.group(1)), 'total': int(m.group(2))}
+        elif line.startswith('RESUME '):
+            m = re.match(r'^RESUME (\d+)/(\d+)$', line)
+            if m:
+                item['resumable'] = True
+                item['progress'] = {'done': int(m.group(1)), 'total': int(m.group(2))}
+        elif line.startswith('FAILED '):
+            marker = ': '
+            item['page_error'] = line.split(marker, 1)[1] if marker in line else line
+        elif line.startswith('COMPLETE '):
+            m = re.match(r'^COMPLETE (\d+)/(\d+)$', line)
+            if m:
+                item['progress'] = {'done': int(m.group(1)), 'total': int(m.group(2))}
 
     def _process_item(self, url):
         logger.info(f"Start processing for {url}")
@@ -87,8 +145,10 @@ class BackgroundWorker:
             
             # Collect stdout lines
             for line in iter(process.stdout.readline, ''):
-                item['stdout'].append(line.strip())
-                logger.debug(line.strip())
+                line = line.strip()
+                item['stdout'].append(line)
+                logger.debug(line)
+                self._parse_heartbeat(item, line)
                 if process.poll() is not None:
                     break
                     
@@ -143,13 +203,34 @@ class BackgroundWorker:
         logger.info(f"Completed task {url} with status {item['status']}")
 
     def get_status(self, url):
-        if url not in self.items:
-            return None
-        return {
-            'status': self.items[url]['status'].value,
-            'error': self.items[url]['error'],
-            'queue': self.queue.qsize()
-        }
+        if url in self.items:
+            item = self.items[url]
+            result = {
+                'status': item['status'].value,
+                'error': item['error'],
+                'queue': self.queue.qsize(),
+                'progress': item.get('progress'),
+                'resumable': bool(item.get('resumable')),
+                'page_error': item.get('page_error'),
+            }
+        else:
+            result = {
+                'status': 'not_found',
+                'error': 'This url is not being processed',
+                'progress': None,
+                'resumable': False,
+                'page_error': None,
+            }
+
+        # Reconstruct state for a job that outlived its process
+        disk = _job_progress_from_disk(url)
+        if disk:
+            if result['progress'] is None:
+                result['progress'] = disk['progress']
+            if disk['partial'] and not result['resumable']:
+                result['resumable'] = True
+
+        return result
 
     def get_result(self, url):
         if url not in self.items or self.items[url]['status'] != TaskStatus.COMPLETED:

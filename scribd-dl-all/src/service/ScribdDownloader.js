@@ -8,13 +8,11 @@ import * as scribdRegex from "../const/ScribdRegex.js"
 import * as scribdFlag  from '../const/ScribdFlag.js'
 import { Image } from "../object/Image.js"
 import sharp from "sharp";
-import path from 'path'
 import sanitize from "sanitize-filename";
 
 
 const output = configLoader.load("DIRECTORY", "output")
 const filename = configLoader.load("DIRECTORY", "filename")
-const rendertime = parseInt(configLoader.load("SCRIBD", "rendertime"))
 
 class ScribdDownloader {
     constructor() {
@@ -25,92 +23,16 @@ class ScribdDownloader {
     }
 
     async execute(url, flag) {
-        if (flag === scribdFlag.DEFAULT) {
-            await jobRunner.execute(url)
-            return
-        }
-        let fn;
         if (flag === scribdFlag.IMAGE) {
             console.log(`Mode: IMAGE`)
-            fn = this.embeds_image
+            let embedUrl = url
+            if (url.match(scribdRegex.DOCUMENT)) {
+                embedUrl = `https://www.scribd.com/embeds/${scribdRegex.DOCUMENT.exec(url)[2]}/content`
+            }
+            await this.embeds_image(embedUrl)
         } else {
             console.log(`Mode: DEFAULT`)
-            fn = this.embeds_default
-        }
-        if (url.match(scribdRegex.DOCUMENT)) {
-            await fn(`https://www.scribd.com/embeds/${scribdRegex.DOCUMENT.exec(url)[2]}/content`)
-        } else if (url.match(scribdRegex.EMBED)) {
-            await fn(url)
-        } else {
-            throw new Error(`Unsupported URL: ${url}`)
-        }
-    }
-
-    async embeds_default(url) {
-        const m = scribdRegex.EMBED.exec(url)
-        if (m) {
-            let id = m[1]
-
-            // navigate to scribd
-            let page = await puppeteerSg.getPage(url)
-
-            // wait rendering
-            await new Promise(resolve => setTimeout(resolve, 1000))
-
-            // get the title
-            let div = await page.$("div.mobile_overlay a")
-            let title = decodeURIComponent(await div.evaluate((el) => el.href.split('/').pop().trim()))
-
-            // load all pages
-            await page.click('div.document_scroller');
-            const container = await page.$('div.document_scroller');
-            const height = await container.evaluate(el => el.scrollHeight);
-            const clientHeight = await container.evaluate(el => el.clientHeight);
-            let cur = await container.evaluate(el => el.scrollTop);
-            const bar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_classic);
-            bar.start(height, 0);
-            while (cur + clientHeight < height) {
-                await page.keyboard.press('PageDown');
-                await new Promise(resolve => setTimeout(resolve, rendertime))
-                cur = await container.evaluate(el => el.scrollTop);
-                bar.update(cur + clientHeight);
-            }
-            bar.stop();
-
-            // remove margin to avoid extra blank page
-            let doc_pages = await page.$$("div.outer_page_container div[id^='outer_page_']")
-            for (let i = 0; i < doc_pages.length; i++) {
-                await page.evaluate((i) => {
-                    document.getElementById(`outer_page_${(i + 1)}`).style.margin = 0
-                }, i)
-            }
-
-            // pdf setting
-            let options = {
-                path: `${output}/${sanitize(filename == "title" ? title : id)}.pdf`,
-                printBackground: true,
-                timeout: 0
-            }
-            let first_page = await page.$("div.outer_page_container div[id^='outer_page_']")
-            let style = await first_page.evaluate((el) => el.getAttribute("style"))
-            if (style.includes("width:") && style.includes("height:")) {
-                options.height = parseInt(style.split("height:")[1].split("px")[0].trim())
-                options.width = parseInt(style.split("width:")[1].split("px")[0].trim())
-            }
-
-            // show doc only
-            await page.evaluate(() => { // eslint-disable-next-line
-                document.body.innerHTML = document.querySelector("div.outer_page_container").innerHTML
-            })
-            
-            await directoryIo.create(path.dirname(options.path))
-            await page.pdf(options);
-            console.log(`Generated: ${options.path}`)
-
-            await page.close()
-            await puppeteerSg.close()
-        } else {
-            throw new Error(`Unsupported URL: ${url}`)
+            await jobRunner.execute(url)
         }
     }
 
