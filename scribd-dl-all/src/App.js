@@ -1,6 +1,7 @@
 import { scribdDownloader } from "./service/ScribdDownloader.js"
 import { slideshareDownloader } from "./service/SlideshareDownloader.js"
 import { everandDownloader } from "./service/EverandDownloader.js"
+import { jobRunner } from "./service/JobRunner.js"
 import * as scribdRegex from "./const/ScribdRegex.js"
 import * as slideshareRegex from "./const/SlideshareRegex.js"
 import * as everandRegex from "./const/EverandRegex.js"
@@ -23,6 +24,14 @@ class App {
         } else {
             throw new Error(`Unsupported URL: ${url}`)
         }
+    }
+
+    /**
+     * Resume a previous scribd download job from its job directory
+     * @param {string} jobDir path of a job directory (output/.jobs/<docId>)
+     */
+    async resume(jobDir) {
+        await jobRunner.resume(jobDir)
     }
 }
 

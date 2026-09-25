@@ -38,8 +38,35 @@ class JobRunner {
         const docId = id
         const embedUrl = url.match(scribdRegex.EMBED) ? url : `https://www.scribd.com/embeds/${docId}/content`
 
-        const dir = await jobDirectory.create(output, docId)
+        await jobDirectory.create(output, docId)
+        await this.run(embedUrl, docId)
+    }
 
+    /**
+     * Resume a previous job from its job directory. Idempotent: safe to run
+     * repeatedly against a partial job.
+     * @param {string} jobDir path of a job directory (output/.jobs/<docId>)
+     */
+    async resume(jobDir) {
+        const docId = path.basename(jobDir)
+        const expected = jobDirectory.dir(output, docId)
+        if (path.resolve(expected) !== path.resolve(jobDir)) {
+            throw new Error(`Job directory must live under the configured output (.jobs): ${expected}`)
+        }
+        if (!jobDirectory.readManifest(output, docId)) {
+            throw new Error(`No manifest.json found; not a resumeable job: ${jobDir}`)
+        }
+        await jobDirectory.create(output, docId)
+        await this.run(`https://www.scribd.com/embeds/${docId}/content`, docId)
+    }
+
+    /**
+     * Shared collect + assemble execution with guaranteed browser cleanup
+     * @param {string} embedUrl full embed url
+     * @param {string} docId    embedded document id
+     */
+    async run(embedUrl, docId) {
+        const dir = jobDirectory.dir(output, docId)
         try {
             const manifest = await this.collect(embedUrl, docId)
             await this.assemble(docId, manifest, dir)
@@ -139,11 +166,16 @@ class JobRunner {
 
         for (let i = 0; i < doc_pages.length; i++) {
             const index = i + 1
-            if (manifest.pages[i].status === scribdJob.STATUS_DONE) {
+            const status = manifest.pages[i].status
+            if (status === scribdJob.STATUS_DONE || status === scribdJob.STATUS_SKIPPED) {
                 continue
             }
 
             const file = jobDirectory.pageFile(output, docId, index)
+            // drop a partially-written file from an interrupted run before re-rendering
+            if (status === scribdJob.STATUS_PENDING && fs.existsSync(file)) {
+                fs.rmSync(file, { force: true })
+            }
             console.log(`PROGRESS ${index}/${doc_pages.length}`)
 
             try {
