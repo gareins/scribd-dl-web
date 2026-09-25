@@ -3,6 +3,7 @@ import { puppeteerSg } from "../utils/request/PuppeteerSg.js";
 import { pdfGenerator } from "../utils/io/PdfGenerator.js";
 import { configLoader } from "../utils/io/ConfigLoader.js";
 import { directoryIo } from "../utils/io/DirectoryIo.js"
+import { jobRunner } from "./JobRunner.js"
 import * as scribdRegex from "../const/ScribdRegex.js"
 import * as scribdFlag  from '../const/ScribdFlag.js'
 import { Image } from "../object/Image.js"
@@ -24,6 +25,10 @@ class ScribdDownloader {
     }
 
     async execute(url, flag) {
+        if (flag === scribdFlag.DEFAULT) {
+            await jobRunner.execute(url)
+            return
+        }
         let fn;
         if (flag === scribdFlag.IMAGE) {
             console.log(`Mode: IMAGE`)
