@@ -10,21 +10,14 @@ RUN apt update
 RUN apt install -y \
   python3-flask \
   gunicorn \
-  wget unzip \
   nodejs npm 
 
 # cleanup apt
 RUN rm -rf /var/lib/apt/lists/*
 RUN apt autoremove -y && apt clean -y
 
-# Download and extract GitHub repository
-# RUN wget https://github.com/rkwyu/scribd-dl/archive/refs/heads/main.zip && \
-# RUN wget https://github.com/rkwyu/scribd-dl/archive/1f9ffc29441305f7478ab7be1f4600459c9d28d7.zip && \
-RUN wget https://github.com/anyopensource/scribd-dl-all/archive/abdbf4cfe1af1c9ac12b65dc05825a21d2cd75e2.zip && \
-    mv *.zip main.zip && \
-    unzip main.zip && \
-    rm main.zip && \
-    mv * scribd-dl
+# Use the vendored local copy of scribd-dl (git submodule) instead of downloading a zip
+COPY scribd-dl-all/ ./scribd-dl/
 
 # Patch code
 COPY patch.py ./
@@ -35,7 +28,6 @@ RUN rm patch.py
 RUN cd scribd-dl && npm install
 
 # cleanup
-RUN apt remove -y wget unzip
 RUN apt-get clean
 RUN cd scribd-dl && npm dedupe
 

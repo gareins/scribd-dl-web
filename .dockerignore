@@ -1,0 +1,7 @@
+.git
+.crush
+**/node_modules
+log
+scribd-dl-all/node_modules
+scribd-dl-all/.git
+scribd-dl-all/log
