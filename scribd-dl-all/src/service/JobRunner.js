@@ -13,6 +13,9 @@ const output = configLoader.load("DIRECTORY", "output")
 const rendertime = parseInt(configLoader.load("SCRIBD", "rendertime"))
 const retries = parseInt(configLoader.load("SCRIBD", "retries"))
 const skipOnError = configLoader.load("SCRIBD", "skip_on_error") === "true"
+const imageFormat = (configLoader.load("IMAGE", "format") || "png").toLowerCase()
+const jpegQuality = parseInt(configLoader.load("IMAGE", "jpeg_quality") || "85")
+const jpegSubsampling = configLoader.load("IMAGE", "jpeg_chroma_subsampling") || "4:2:0"
 
 class JobRunner {
     constructor() {
@@ -111,7 +114,8 @@ class JobRunner {
 
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
-                await el.screenshot({ path: file })
+                const png = await el.screenshot()
+                await this.encodeImage(png, file)
                 return { width, height }
             } catch (err) {
                 if (fs.existsSync(file)) {
@@ -125,6 +129,20 @@ class JobRunner {
     }
 
     /**
+     * Encode a PNG screenshot buffer into the configured page image codec and
+     * write it to disk. Keeps the page artifact small inside the assembled pdf.
+     * @param {Buffer} png raw png bytes from the element screenshot
+     * @param {string} file destination path
+     */
+    async encodeImage(png, file) {
+        if (imageFormat === "jpeg") {
+            await sharp(png).jpeg({ quality: jpegQuality, chromaSubsampling: jpegSubsampling }).toFile(file)
+        } else {
+            await sharp(png).png().toFile(file)
+        }
+    }
+
+    /**
      * Write a white placeholder image for a broken page so the page count holds.
      * Sized to the default page so it never needs the (possibly dead) browser.
      * @param {string} file  destination png path
@@ -132,14 +150,15 @@ class JobRunner {
      * @param {number} height rendered height
      */
     async writePlaceholder(file, width = 1191, height = 1684) {
-        await sharp({
+        const png = await sharp({
             create: {
                 width: Math.max(1, width),
                 height: Math.max(1, height),
                 channels: 3,
                 background: { r: 255, g: 255, b: 255 }
             }
-        }).png().toFile(file)
+        }).png().toBuffer()
+        await this.encodeImage(png, file)
     }
 
     /**

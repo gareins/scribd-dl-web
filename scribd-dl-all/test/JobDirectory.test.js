@@ -95,7 +95,7 @@ describe("JobDirectory", () => {
     })
 
     test("pageFile is zero-padded within the pages directory", () => {
-        expect(jobDirectory.pageFile(output, docId, 42)).toBe(path.join(output, scribdJob.JOB_DIR, docId, scribdJob.PAGES_DIR, "0042.png"))
+        expect(jobDirectory.pageFile(output, docId, 42)).toBe(path.join(output, scribdJob.JOB_DIR, docId, scribdJob.PAGES_DIR, `0042.${jobDirectory.pageExt()}`))
     })
 
     test("pagesToRender skips done and skipped (resume offset)", async () => {

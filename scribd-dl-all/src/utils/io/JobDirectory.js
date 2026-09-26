@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { directoryIo } from "./DirectoryIo.js"
+import { configLoader } from "./ConfigLoader.js"
 import * as scribdJob from '../../const/ScribdJob.js'
 
 class JobDirectory {
@@ -42,6 +43,15 @@ class JobDirectory {
     }
 
     /**
+     * File extension for a rendered page, derived from the image codec config
+     * @returns {string}
+     */
+    pageExt() {
+        const format = (configLoader.load("IMAGE", "format") || "png").toLowerCase()
+        return format === "jpeg" ? "jpg" : "png"
+    }
+
+    /**
      * Path of a single page render artifact
      * @param {string} output  path of the output directory
      * @param {string} docId   embedded document id
@@ -49,7 +59,7 @@ class JobDirectory {
      * @returns {string}
      */
     pageFile(output, docId, index) {
-        return path.join(this.dir(output, docId), scribdJob.PAGES_DIR, `${index.toString().padStart(4, 0)}.png`)
+        return path.join(this.dir(output, docId), scribdJob.PAGES_DIR, `${index.toString().padStart(4, 0)}.${this.pageExt()}`)
     }
 
     /**
