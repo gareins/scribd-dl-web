@@ -1,20 +1,17 @@
-FROM ubuntu:latest
+FROM node:20-bookworm-slim
 
 # Create and set working directory
 WORKDIR /app
 
 USER root
 
-# Install packages
-RUN apt update
-RUN apt install -y \
+# Install packages (node/npm already provided by base image)
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+  python3 \
   python3-flask \
   gunicorn \
-  nodejs npm 
-
-# cleanup apt
-RUN rm -rf /var/lib/apt/lists/*
-RUN apt autoremove -y && apt clean -y
+  && rm -rf /var/lib/apt/lists/*
 
 # Use the vendored local copy of scribd-dl (git submodule) instead of downloading a zip
 COPY scribd-dl-all/ ./scribd-dl/
@@ -24,12 +21,8 @@ COPY patch.py ./
 RUN python3 patch.py scribd-dl
 RUN rm patch.py
 
-# Install npm dependencies
-RUN cd scribd-dl && npm install
-
-# cleanup
-RUN apt-get clean
-RUN cd scribd-dl && npm dedupe
+# Install npm dependencies, skipping puppeteer's bundled Chrome (app connects to the browser service) and omitting dev deps
+RUN cd scribd-dl && PUPPETEER_SKIP_DOWNLOAD=true npm install --omit=dev
 
 # Copy Python application file
 COPY app.py .
