@@ -9,6 +9,7 @@ import logging
 from enum import Enum
 
 WORK_DIR = os.path.abspath("./scribd-dl")
+OUTPUT_DIR = os.environ.get('OUTPUT_DIR', os.path.join(WORK_DIR, 'output'))
 logger = logging.getLogger(__name__)
 
 class TaskStatus(Enum):
@@ -31,7 +32,7 @@ def _job_progress_from_disk(url):
     doc_id = _doc_id(url)
     if not doc_id:
         return None
-    progress_path = os.path.join(WORK_DIR, 'output', '.jobs', doc_id, 'progress.json')
+    progress_path = os.path.join(OUTPUT_DIR, '.jobs', doc_id, 'progress.json')
     if not os.path.exists(progress_path):
         return None
     try:
@@ -53,7 +54,7 @@ def _move_to_cache(doc_id, pdf_path):
     success, so the only artifact the web must pick up is the final PDF that
     was reported on stdout via "Generated:".
     """
-    cache_dir = os.path.join(WORK_DIR, 'output', 'cache')
+    cache_dir = os.path.join(OUTPUT_DIR, 'cache')
     os.makedirs(cache_dir, exist_ok=True)
     cache_path = os.path.join(cache_dir, '{}.pdf'.format(doc_id if doc_id else 'download'))
     os.replace(pdf_path, cache_path)

@@ -14,12 +14,16 @@ class ConfigLoader {
     }
 
     /**
-     * Get the value in config.ini
+     * Get the value in config.ini. The DIRECTORY.output value can be overridden
+     * by the OUTPUT_DIR environment variable (set by the container deployment).
      * @param {string} section 
      * @param {string} key 
      * @returns {Promise<string>}
      */
     load(section, key) {
+        if (section === "DIRECTORY" && key === "output" && process.env.OUTPUT_DIR) {
+            return process.env.OUTPUT_DIR
+        }
         if (Object.keys(config[section]).includes(key)) {
             return config[section][key]
         } else {

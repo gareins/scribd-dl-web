@@ -6,6 +6,11 @@ services:
       - browser
     ports:
       - 5000:5000
+    environment:
+      # durable download/output location; override config.ini DIRECTORY.output
+      OUTPUT_DIR: /output
+    volumes:
+      - ./output:/output
 
   browser:
     image: zenika/alpine-chrome:latest
