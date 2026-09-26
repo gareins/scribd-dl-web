@@ -16,11 +16,6 @@ RUN apt-get update \
 # Use the vendored local copy of scribd-dl (git submodule) instead of downloading a zip
 COPY scribd-dl-all/ ./scribd-dl/
 
-# Patch code
-COPY patch.py ./
-RUN python3 patch.py scribd-dl
-RUN rm patch.py
-
 # Install npm dependencies, skipping puppeteer's bundled Chrome (app connects to the browser service) and omitting dev deps
 RUN cd scribd-dl && PUPPETEER_SKIP_DOWNLOAD=true npm install --omit=dev
 

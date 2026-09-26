@@ -1,4 +1,15 @@
 import puppeteer from 'puppeteer'
+import axios from 'axios';
+import dns from 'node:dns';
+
+async function lookupIp() {
+    return new Promise((resolve, reject) => {
+        dns.lookup('browser', (err, address, family) => {
+            if(err) reject(err);
+            resolve(address);
+        });
+   });
+};
 
 class PuppeteerSg {
   constructor() {
@@ -15,10 +26,11 @@ class PuppeteerSg {
    * Launch a browser
    */
   async launch() {
-    this.browser = await puppeteer.launch({
-      headless: "new",
-      defaultViewport: null,
-      protocolTimeout: 600000,
+    const ip_address = await lookupIp();
+    const response = await axios.get('http://' + ip_address + ':9222/json/version');
+    this.browser = await puppeteer.connect({
+        browserWSEndpoint: response.data.webSocketDebuggerUrl,
+        defaultViewport: null,
     });
   }
 
@@ -43,7 +55,7 @@ class PuppeteerSg {
    */
   async close() {
     if (this.browser) {
-      await this.browser.close();
+      await this.browser.disconnect();
       this.browser = null;
     }
   }
