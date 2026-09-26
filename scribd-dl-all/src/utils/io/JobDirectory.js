@@ -53,7 +53,12 @@ class JobDirectory {
     }
 
     /**
-     * Authoritative per-page state. Every update is written through to disk.
+     * Create or reconcile the authoritative per-page state and persist it.
+     *
+     * Fast path when the page count is unchanged (e.g. resuming the same job).
+     * If the count drifted because the document changed, the pages list is
+     * rebuilt: resolved (done/skipped) pages keep their status only if their
+     * render file still exists, otherwise they fall back to pending.
      * @param {string} output path of the output directory
      * @param {string} docId  embedded document id
      * @param {number} total  expected number of pages
@@ -63,16 +68,77 @@ class JobDirectory {
         if (!manifest) {
             manifest = { total: 0, pages: [] }
         }
-        if (manifest.total) {
+        if (manifest.pages.length === total && manifest.total === total) {
+            // unchanged page count: still downgrade any resolved page whose
+            // render file disappeared between runs so it gets re-rendered
+            let changed = false
+            for (const page of manifest.pages) {
+                if ((page.status === scribdJob.STATUS_DONE || page.status === scribdJob.STATUS_SKIPPED) && !fs.existsSync(page.file)) {
+                    page.status = scribdJob.STATUS_PENDING
+                    changed = true
+                }
+            }
+            if (changed) {
+                await this.writeManifest(output, docId, manifest)
+            }
             return manifest
         }
+
+        const previous = new Map(manifest.pages.map(page => [page.page, page]))
         manifest.total = total
         manifest.pages = []
         for (let i = 1; i <= total; i++) {
-            manifest.pages.push({ page: i, status: scribdJob.STATUS_PENDING, file: this.pageFile(output, docId, i) })
+            const file = this.pageFile(output, docId, i)
+            const prev = previous.get(i)
+            if (prev && (prev.status === scribdJob.STATUS_DONE || prev.status === scribdJob.STATUS_SKIPPED) && fs.existsSync(file)) {
+                manifest.pages.push(prev)
+            } else if (prev && prev.status === scribdJob.STATUS_FAILED) {
+                manifest.pages.push({ page: i, status: scribdJob.STATUS_FAILED, error: prev.error, file: file })
+            } else {
+                manifest.pages.push({ page: i, status: scribdJob.STATUS_PENDING, file: file })
+            }
         }
         await this.writeManifest(output, docId, manifest)
         return manifest
+    }
+
+    /**
+     * Indices that still need rendering (resume offset). Pages already resolved
+     * as done or skipped are treated as terminal.
+     * @param {object} manifest manifest state
+     * @returns {number[]} 1-based page indices to render
+     */
+    pagesToRender(manifest) {
+        const indices = []
+        for (const page of manifest.pages) {
+            if (page.status !== scribdJob.STATUS_DONE && page.status !== scribdJob.STATUS_SKIPPED) {
+                indices.push(page.page)
+            }
+        }
+        return indices
+    }
+
+    /**
+     * Remove the resumable job artifacts (pages, manifest, progress) after the
+     * final.pdf has been produced and consumed. Never called on failure.
+     * @param {string} output path of the output directory
+     * @param {string} docId  embedded document id
+     */
+    cleanup(output, docId) {
+        const dir = this.dir(output, docId)
+        const pagesDir = path.join(dir, scribdJob.PAGES_DIR)
+        if (fs.existsSync(pagesDir)) {
+            fs.rmSync(pagesDir, { recursive: true, force: true })
+        }
+        for (const name of [scribdJob.MANIFEST_FILE, scribdJob.PROGRESS_FILE]) {
+            const file = path.join(dir, name)
+            if (fs.existsSync(file)) {
+                fs.rmSync(file, { force: true })
+            }
+        }
+        if (fs.existsSync(dir)) {
+            fs.rmSync(dir, { recursive: true, force: true })
+        }
     }
 
     /**

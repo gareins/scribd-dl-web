@@ -66,10 +66,13 @@ class JobRunner {
      * @param {string} docId    embedded document id
      */
     async run(embedUrl, docId) {
-        const dir = jobDirectory.dir(output, docId)
         try {
             const manifest = await this.collect(embedUrl, docId)
-            await this.assemble(docId, manifest, dir)
+            await this.assemble(docId, manifest)
+            // final.pdf was produced at a dedicated location (output/<docId>.pdf,
+            // reported on stdout via "Generated:"). Everything else in the job
+            // directory is now temporary, so wipe it. Never reached on failure.
+            jobDirectory.cleanup(output, docId)
         } finally {
             await puppeteerSg.close()
         }
@@ -169,16 +172,11 @@ class JobRunner {
             console.log(`RESUME ${resumed}/${doc_pages.length}`)
         }
 
-        for (let i = 0; i < doc_pages.length; i++) {
-            const index = i + 1
-            const status = manifest.pages[i].status
-            if (status === scribdJob.STATUS_DONE || status === scribdJob.STATUS_SKIPPED) {
-                continue
-            }
-
+        for (const index of jobDirectory.pagesToRender(manifest)) {
+            const i = index - 1
             const file = jobDirectory.pageFile(output, docId, index)
             // drop a partially-written file from an interrupted run before re-rendering
-            if (status === scribdJob.STATUS_PENDING && fs.existsSync(file)) {
+            if (fs.existsSync(file)) {
                 fs.rmSync(file, { force: true })
             }
             console.log(`PROGRESS ${index}/${doc_pages.length}`)
@@ -210,12 +208,12 @@ class JobRunner {
     }
 
     /**
-     * Assemble phase: cheap and idempotent, rebuilds the final pdf from the manifest.
+     * Assemble phase: cheap and idempotent, rebuilds the pdf from the manifest
+     * to a dedicated location (output/<docId>.pdf) outside the job directory.
      * @param {string} docId embedded document id
      * @param {object} manifest manifest state
-     * @param {string} dir     job directory
      */
-    async assemble(docId, manifest, dir) {
+    async assemble(docId, manifest) {
         const images = []
         for (const entry of manifest.pages) {
             if (entry.status !== scribdJob.STATUS_DONE && entry.status !== scribdJob.STATUS_SKIPPED) {
@@ -224,7 +222,7 @@ class JobRunner {
             const metadata = await sharp(entry.file).metadata()
             images.push(new Image(entry.file, metadata.width, metadata.height))
         }
-        await pdfGenerator.generate(images, path.join(dir, scribdJob.FINAL_FILE))
+        await pdfGenerator.generate(images, path.join(output, `${docId}.pdf`))
     }
 }
 

@@ -65,8 +65,14 @@ def download_file():
         return 'Task not found or not completed', 404
 
     safe_filename = urllib.parse.quote(data["filename"], safe='')
-        
-    return data['content'], 200, {
+
+    try:
+        with open(data["path"], 'rb') as f:
+            content = f.read()
+    except OSError:
+        return 'Cached file no longer available', 404
+
+    return content, 200, {
         'Content-Type': 'application/pdf',
         'Content-Disposition': f'attachment; filename="{safe_filename}"'
     }

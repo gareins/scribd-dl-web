@@ -46,6 +46,19 @@ def _job_progress_from_disk(url):
     except (ValueError, OSError):
         return None
 
+def _move_to_cache(doc_id, pdf_path):
+    """Move the finished PDF into the web cache and return its new path.
+
+    The scribd-dl job owns all other files and wipes the job directory on
+    success, so the only artifact the web must pick up is the final PDF that
+    was reported on stdout via "Generated:".
+    """
+    cache_dir = os.path.join(WORK_DIR, 'output', 'cache')
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_path = os.path.join(cache_dir, '{}.pdf'.format(doc_id if doc_id else 'download'))
+    os.replace(pdf_path, cache_path)
+    return cache_path
+
 class BackgroundWorker:
     def __init__(self):
         self.queue = queue.Queue()
@@ -186,13 +199,13 @@ class BackgroundWorker:
                 logger.warning("{}:{}".format(url, item['error']))
                 return
                 
-            with open(pdf_path, 'rb') as f:
-                pdf_content = f.read()
-            os.remove(pdf_path)
-                
-            # Store PDF content and filename
+            # Move the finished PDF into the web cache (JS owns all other files
+            # and already cleaned the job directory on success)
+            cache_path = _move_to_cache(_doc_id(url), pdf_path)
+
+            # Store the cached file path for serving
             item['status'] = TaskStatus.COMPLETED
-            item['data'] = {'filename': pdf_filename, 'content': pdf_content}
+            item['data'] = {'filename': pdf_filename, 'path': cache_path}
             
         except subprocess.SubprocessError as e:
             item['status'] = TaskStatus.FAILED
