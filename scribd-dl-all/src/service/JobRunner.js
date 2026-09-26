@@ -125,12 +125,13 @@ class JobRunner {
     }
 
     /**
-     * Write a white placeholder image for a broken page so the page count holds
+     * Write a white placeholder image for a broken page so the page count holds.
+     * Sized to the default page so it never needs the (possibly dead) browser.
      * @param {string} file  destination png path
      * @param {number} width rendered width
      * @param {number} height rendered height
      */
-    async writePlaceholder(file, width, height) {
+    async writePlaceholder(file, width = 1191, height = 1684) {
         await sharp({
             create: {
                 width: Math.max(1, width),
@@ -187,7 +188,17 @@ class JobRunner {
             } catch (err) {
                 console.log(`FAILED ${index}/${doc_pages.length}: ${err.message}`)
                 if (skipOnError) {
-                    const { width, height } = await this.pageDimensions(doc_pages[i])
+                    // Ask the browser for the page size, but fall back to the
+                    // default when it is unreachable (crashed GPU/connection).
+                    let width = 1191
+                    let height = 1684
+                    try {
+                        const dims = await this.pageDimensions(doc_pages[i])
+                        width = dims.width
+                        height = dims.height
+                    } catch {
+                        // browser unreachable; keep the default page size
+                    }
                     await this.writePlaceholder(file, width, height)
                     await jobDirectory.markSkipped(output, docId, index, err.message)
                 } else {

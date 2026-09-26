@@ -10,6 +10,7 @@ replacement1 = """  async launch() {
     this.browser = await puppeteer.connect({
         browserWSEndpoint: response.data.webSocketDebuggerUrl,
         defaultViewport: null,
+        protocolTimeout: 600000,
     });
   }"""
 head1 = """import axios from 'axios';

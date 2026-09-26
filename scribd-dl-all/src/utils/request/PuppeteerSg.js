@@ -18,6 +18,7 @@ class PuppeteerSg {
     this.browser = await puppeteer.launch({
       headless: "new",
       defaultViewport: null,
+      protocolTimeout: 600000,
     });
   }
 
@@ -28,7 +29,7 @@ class PuppeteerSg {
    */
   async getPage(url) {
     if (!this.browser) {
-      await this.launch({headless: true, timeout: 0})
+      await this.launch({headless: true, timeout: 0, protocolTimeout: 600000})
     }
     let page = await this.browser.newPage()
     await page.goto(url, {
