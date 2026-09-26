@@ -17,7 +17,7 @@ RUN apt-get update \
 COPY scribd-dl-all/ ./scribd-dl/
 
 # Install npm dependencies, skipping puppeteer's bundled Chrome (app connects to the browser service) and omitting dev deps
-RUN cd scribd-dl && PUPPETEER_SKIP_DOWNLOAD=true npm install --omit=dev
+RUN cd scribd-dl && PUPPETEER_SKIP_DOWNLOAD=true npm ci --omit=dev
 
 # Copy Python application file
 COPY app.py .
