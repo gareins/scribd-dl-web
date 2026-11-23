@@ -16,6 +16,9 @@ const skipOnError = configLoader.load("SCRIBD", "skip_on_error") === "true"
 const imageFormat = (configLoader.load("IMAGE", "format") || "png").toLowerCase()
 const jpegQuality = parseInt(configLoader.load("IMAGE", "jpeg_quality") || "85")
 const jpegSubsampling = configLoader.load("IMAGE", "jpeg_chroma_subsampling") || "4:2:0"
+// pixels per css pixel when capturing. Higher = sharper but vastly more memory
+// (4x per factor step), which OOM-kills the browser's GPU process on weak hosts.
+const deviceScaleFactor = parseInt(configLoader.load("IMAGE", "device_scale_factor") || "2")
 
 class JobRunner {
     constructor() {
@@ -110,7 +113,7 @@ class JobRunner {
         }, index)
 
         const { width, height } = await this.pageDimensions(el)
-        await page.setViewport({ width: width, height: height, deviceScaleFactor: 2 });
+        await page.setViewport({ width: width, height: height, deviceScaleFactor: deviceScaleFactor });
 
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
