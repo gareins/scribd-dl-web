@@ -12,7 +12,7 @@ import fs from 'fs'
 const output = configLoader.load("DIRECTORY", "output")
 const rendertime = parseInt(configLoader.load("SCRIBD", "rendertime"))
 const retries = parseInt(configLoader.load("SCRIBD", "retries"))
-const skipOnError = configLoader.load("SCRIBD", "skip_on_error") === "true"
+const skipOnError = configLoader.load("SCRIBD", "skip_on_error") === true || configLoader.load("SCRIBD", "skip_on_error") === "true"
 const imageFormat = (configLoader.load("IMAGE", "format") || "png").toLowerCase()
 const jpegQuality = parseInt(configLoader.load("IMAGE", "jpeg_quality") || "85")
 const jpegSubsampling = configLoader.load("IMAGE", "jpeg_chroma_subsampling") || "4:2:0"
@@ -165,13 +165,12 @@ class JobRunner {
     }
 
     /**
-     * Collect phase: render each page independently to the job's pages dir,
-     * writing the manifest after every page so a crash loses nothing.
-     * @param {string} url    full embed url
-     * @param {string} docId  embedded document id
-     * @returns {Promise<object>} the written manifest
+     * Open the embed document in a fresh page, hide the toolbar blockers and
+     * return the page plus its element handles for each outer_page_*.
+     * @param {string} url full embed url
+     * @returns {Promise<{page:object, doc_pages:object[]}>}
      */
-    async collect(url, docId) {
+    async openDocument(url) {
         const page = await puppeteerSg.getPage(url)
 
         // wait rendering
@@ -188,34 +187,76 @@ class JobRunner {
 
         // discover the outer_page_* elements (1-based indices)
         let doc_pages = await page.$$("div.outer_page_container div[id^='outer_page_']")
-        let manifest = await jobDirectory.init(output, docId, doc_pages.length)
+        return { page, doc_pages }
+    }
+
+    /**
+     * True when the error means the browser/CDP connection is gone. Such errors
+     * are unrecoverable in place; the caller must reconnect and reopen the doc.
+     * @param {Error} err caught render error
+     * @returns {boolean}
+     */
+    isConnectionError(err) {
+        const msg = (err && err.message) || ""
+        return /connection closed|connection terminated|target closed|browser has disconnected|protocol error|websocket|the page has been closed|session may have crashed/i.test(msg)
+    }
+
+    /**
+     * Collect phase: render each page independently to the job's pages dir,
+     * writing the manifest after every page so a crash loses nothing. If the
+     * browser/CDP connection dies mid-document (common under memory pressure),
+     * reconnect, reopen the doc and continue from the stored checkpoint.
+     * @param {string} url    full embed url
+     * @param {string} docId  embedded document id
+     * @returns {Promise<object>} the written manifest
+     */
+    async collect(url, docId) {
+        let session = await this.openDocument(url)
+        let manifest = await jobDirectory.init(output, docId, session.doc_pages.length)
 
         const resumed = manifest.pages.filter(p => p.status === scribdJob.STATUS_DONE || p.status === scribdJob.STATUS_SKIPPED).length
         if (resumed > 0) {
-            console.log(`RESUME ${resumed}/${doc_pages.length}`)
+            console.log(`RESUME ${resumed}/${session.doc_pages.length}`)
         }
 
-        for (const index of jobDirectory.pagesToRender(manifest)) {
+        // Re-loop until every page is resolved; the manifest is the source of
+        // truth so a mid-document reconnect picks up exactly where we stopped.
+        while (true) {
+            manifest = jobDirectory.readManifest(output, docId)
+            const remaining = jobDirectory.pagesToRender(manifest)
+            if (remaining.length === 0) {
+                break
+            }
+            const index = remaining[0]
             const i = index - 1
             const file = jobDirectory.pageFile(output, docId, index)
             // drop a partially-written file from an interrupted run before re-rendering
             if (fs.existsSync(file)) {
                 fs.rmSync(file, { force: true })
             }
-            console.log(`PROGRESS ${index}/${doc_pages.length}`)
+            console.log(`PROGRESS ${index}/${session.doc_pages.length}`)
 
             try {
-                await this.renderPage(page, doc_pages[i], file, index)
+                await this.renderPage(session.page, session.doc_pages[i], file, index)
                 await jobDirectory.markDone(output, docId, index)
             } catch (err) {
-                console.log(`FAILED ${index}/${doc_pages.length}: ${err.message}`)
+                console.log(`FAILED ${index}/${session.doc_pages.length}: ${err.message}`)
+                if (this.isConnectionError(err)) {
+                    console.log(`RECONNECT page ${index}: ${err.message}`)
+                    await puppeteerSg.close().catch(() => { })
+                    await new Promise(resolve => setTimeout(resolve, 1000))
+                    session = await this.openDocument(url)
+                    manifest = await jobDirectory.init(output, docId, session.doc_pages.length)
+                    continue
+                }
+                console.log(`SKIP_ON_ERROR=${skipOnError} page ${index} error: ${err.message}`)
                 if (skipOnError) {
                     // Ask the browser for the page size, but fall back to the
                     // default when it is unreachable (crashed GPU/connection).
                     let width = 1191
                     let height = 1684
                     try {
-                        const dims = await this.pageDimensions(doc_pages[i])
+                        const dims = await this.pageDimensions(session.doc_pages[i])
                         width = dims.width
                         height = dims.height
                     } catch {
@@ -225,14 +266,14 @@ class JobRunner {
                     await jobDirectory.markSkipped(output, docId, index, err.message)
                 } else {
                     await jobDirectory.markFailed(output, docId, index, err.message)
-                    await page.close()
+                    await session.page.close()
                     throw new Error(`Page ${index} failed after ${retries} attempts`)
                 }
             }
             await new Promise(resolve => setTimeout(resolve, rendertime))
         }
 
-        await page.close()
+        await session.page.close()
 
         const finalManifest = jobDirectory.readManifest(output, docId)
         const done = finalManifest.pages.filter(p => p.status === scribdJob.STATUS_DONE).length

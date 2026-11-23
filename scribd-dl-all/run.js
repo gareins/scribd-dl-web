@@ -1,5 +1,10 @@
 import { app } from './src/App.js'
 import * as scribdFlag  from './src/const/ScribdFlag.js'
+import { configLoader } from './src/utils/io/ConfigLoader.js'
+
+// Startup config trace: confirms which settings the running deployment actually
+// loads (useful when debugging behavior that differs from the repo's config.ini).
+console.log(`CONFIG skip_on_error=${configLoader.load("SCRIBD", "skip_on_error")} retries=${configLoader.load("SCRIBD", "retries")} format=${configLoader.load("IMAGE", "format")} quality=${configLoader.load("IMAGE", "jpeg_quality")} device_scale_factor=${configLoader.load("IMAGE", "device_scale_factor")} output=${configLoader.load("DIRECTORY", "output")}`)
 
 const flags = [scribdFlag.DEFAULT, scribdFlag.IMAGE]
 const args = process.argv.slice(2)
